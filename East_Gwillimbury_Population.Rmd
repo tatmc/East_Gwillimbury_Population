@@ -1,0 +1,264 @@
+---
+title: "East Gwillimbury: the fastest growing municipality in Canada"
+author: "Tatiana McAuley"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+On February 9, 2022, Census Canada released data indicating that East Gwillimbury is the fastest growing municipality (with at least 5000 inhabitants) in Canada with a 44.4% increase in population from 2016 to 2021. This project uses GTA 2021 census which was obtained using ***cancensus*** package. Additionally, an API key *CensusMapper_dace09da733b4af3aa9f84483c6ca827* was used to obtain the data. 
+
+All visualizations (including text and graph titles) follow the same dark-red and navy color scheme. Important text highlights are outlined with dashed lines to make them more visible as well as different color (dark-red) was used for numbers to make them stand out more. The sourses are cited at the bottom of the infographic. 
+
+## Dataset and data cleaning
+
+The dataset **EastGwillimbury** is obtained from Canadian 2021 census, region code 35535 which corresponds to GTA area. The attributes of the original dataset include:
+
+- Population, 2021
+- Population, 2016
+- Population percentage change, 2016 to 2021
+- Population density per square kilometre
+- Land area in square kilometres
+- Age variables (# of 0 to 14 years, 15 to 19 years, 20 to 24 years, 25 to 29 years, 30 to 34 years, 35 to 39 years, 40 to 44 years, 45 to 49 years, 50 to 54 years, 55 to 59 years, 60 to 64 years,65 years and over observations)
+- Average age (total, female, male)
+- Total - Occupied private dwellings by structural type of dwelling data (# of observations)
+- Single-detached house (# of observations)
+- Median total income in 2020 among recipients ($)
+- Total - Commuting duration for the employed labour force aged 15 years and over with a usual place of work or no fixed workplace address
+- Less than 15 minutes commuting duration (# of observations)
+- 15 to 29 minutes commuting duration (# of observations)
+- 60 minutes and over commuting duration (# of observations)
+- Total - Commuting destination for the employed labour force aged 15 years and over with a usual place of work (# of observations)
+- Commute within census subdivision (CSD) of residence (# of observations)
+- Commute to a different census subdivision (CSD) within census division (CD) of residence (# of observations)
+- Commute to a different census subdivision (CSD) and census division (CD) within province or territory of residence (# of observations)
+- Commute to a different province or territory (# of observations)
+
+Note that 2021 GTA census is missing Gender variable, so we get gender distribution from 2016 GTA census.
+
+Data cleaning steps are shown below in the code. 
+
+```{r, message=FALSE}
+library(cancensus)
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(scales)
+
+options(cancensus.api_key = "CensusMapper_dace09da733b4af3aa9f84483c6ca827")
+
+EastGwillimbury <- get_census(dataset='CA21', regions=list(CMA="35535"),
+                      vectors=c("v_CA21_1", "v_CA21_2", "v_CA21_3", "v_CA21_6", 
+                                "v_CA21_7", "v_CA21_8", "v_CA21_11", "v_CA21_71", 
+                                "v_CA21_89", "v_CA21_107", "v_CA21_125", "v_CA21_143", 
+                                "v_CA21_161", "v_CA21_179", "v_CA21_197", "v_CA21_215", 
+                                "v_CA21_233", "v_CA21_251", "v_CA21_386", "v_CA21_389", 
+                                "v_CA21_434", "v_CA21_435", "v_CA21_560", "v_CA21_7656", 
+                                "v_CA21_7659", "v_CA21_7662", "v_CA21_7671", "v_CA21_7617", 
+                                "v_CA21_7620", "v_CA21_7623", "v_CA21_7626", "v_CA21_7629",
+                                "v_CA21_7632", "v_CA21_7635"),
+                      level='CSD', use_cache = TRUE, geo_format = 'sf', 
+                      quiet = TRUE, labels="short")
+
+# 2021 census is missing Gender variable, we get gender distribution from 2016 census
+EastGwillimbury16 <- get_census(dataset='CA16', regions=list(CMA="35535"),
+                      vectors=c("v_CA16_1", "v_CA16_2", "v_CA16_3"),
+                      level='CSD', use_cache = TRUE, geo_format = 'sf', 
+                      quiet = TRUE, labels="short")
+
+# Gender distribution percentage
+EastGwillimbury16$male <- EastGwillimbury16$v_CA16_2/EastGwillimbury16$v_CA16_1*100
+EastGwillimbury16$female <- EastGwillimbury16$v_CA16_3/EastGwillimbury16$v_CA16_1*100
+
+# Create desired age ranges (was not used for the final visualizations but was useful when 
+# identifying important information to include on the info graphic)
+EastGwillimbury$age0_14 <- EastGwillimbury$v_CA21_11
+EastGwillimbury$age15_24 <- EastGwillimbury$v_CA21_71 + EastGwillimbury$v_CA21_89
+EastGwillimbury$age25_34 <- EastGwillimbury$v_CA21_107 + EastGwillimbury$v_CA21_125
+EastGwillimbury$age35_44 <- EastGwillimbury$v_CA21_143 + EastGwillimbury$v_CA21_161
+EastGwillimbury$age45_54 <- EastGwillimbury$v_CA21_179 + EastGwillimbury$v_CA21_197
+EastGwillimbury$age55_64 <- EastGwillimbury$v_CA21_215 + EastGwillimbury$v_CA21_233
+EastGwillimbury$age65 <- EastGwillimbury$v_CA21_251
+
+# Add a space to long names
+EastGwillimbury[13,6] <- "Chippewas of Georgina Island \nFirst Nation (IRD)"
+
+# Single houses:all dwellings ratio
+EastGwillimbury$single_house <- EastGwillimbury$v_CA21_435/EastGwillimbury$v_CA21_434
+
+# Proportion of people commuting to work below 30 minutes and over 60 minutes
+EastGwillimbury$below30min <- (EastGwillimbury$v_CA21_7659 + 
+                                EastGwillimbury$v_CA21_7662) / 
+                                EastGwillimbury$v_CA21_7656*100
+EastGwillimbury$over60min <- EastGwillimbury$v_CA21_7671/EastGwillimbury$v_CA21_7656*100
+
+# Proportion of people commuting by car
+EastGwillimbury$car <- EastGwillimbury$v_CA21_7635/EastGwillimbury$v_CA21_7632*100
+```
+
+## Categorical Element Visualization: Population growth in GTA municipalities
+
+```{r, fig.width=16,fig.height=8}
+# Categorical element is GTA municipalities
+# 2016-2021 population growth is shown for 10 GTA municipalities
+# This graph shows that East Gwillimbury has the highest population change since 2016
+
+EastGwillimbury[c(11,23,24,21,17,13,15,14,3,22),] %>%
+  ggplot(aes(y = reorder(name, v_CA21_3), x = v_CA21_3)) + 
+  geom_col(color = "navy", fill = "navy", 
+           alpha = 0.6, width = 0.7)  + 
+  scale_x_continuous(labels = label_percent(scale = 1),breaks=seq(-15,45,5)) +
+  theme_minimal() +
+  theme(text=element_text(size=35,color="navy",face="bold"), 
+        axis.text=element_text(size=20)) +
+  labs(x=NULL, y=NULL, 
+       title = "Top and Bottom 5 GTA Municipalities by 
+       \nPopulation Growth Rate, 2016-2021")
+
+```
+
+## Wild Card Visualization: Waffle Chart
+
+```{r, fig.width=10,fig.height=7,message=FALSE}
+# WILD CARD 
+# Waffle chart of Commuting destination for the employed labour force 
+
+library(ggwaffle)
+library(fontawesome)
+library(extrafont)
+library(emojifont)
+
+# Find the number of observations in each category 
+# Divide by 30: Each car symbol corresponds to 30 observations
+commute = round(c(EastGwillimbury$v_CA21_7620[11],
+                  EastGwillimbury$v_CA21_7623[11],
+                  EastGwillimbury$v_CA21_7626[11],
+                  EastGwillimbury$v_CA21_7629[11])/30,0)
+commute
+sum(commute)
+
+fa <- fontawesome('fa-car')
+
+group=c(rep('within CSD of residence',59),
+        rep('different CSD within CD of residence',165),
+        rep('different CD within province/territory of residence',76),
+        rep('different province or territory',1))
+group_ordered = factor(group, ordered=TRUE, 
+                       levels=c("within CSD of residence",
+                                "different CSD within CD of residence",
+                                "different CD within province/territory of residence",
+                                "different province or territory"))
+
+d <- data.frame(y = c(rep(1:16,18),1:13), x = c(rep(1:18,each=16),rep(19,13)),
+                group=group_ordered,
+                label=sample(fa, 301, replace=T))
+
+ggplot(d, aes(x, y, colour = group)) + 
+  geom_text(aes(label=label, color=group), 
+            family='fontawesome-webfont', size=5) +
+  coord_equal() + 
+  scale_colour_manual(values=c("lightseagreen", "navy", "cornflowerblue", "red")) +
+  theme_waffle() +
+  labs(x=NULL, y=NULL,colour="Commuting Destination", 
+       title="Commuting destination to a usual place of work",
+       caption="Census Subdivision (CSD)\nCensus Division (CD)",
+       subtitle = "Employed labour force aged 15 years and over\n1 car symbol = 30 people") +
+  theme(plot.caption = element_text(hjust=0.04,size=12), text=element_text(size=12),
+        plot.subtitle = element_text(size = 12), 
+        plot.title = element_text(size=25,color="navy", face="bold")) +
+  theme(legend.key.height = unit(0.2, 'in'), legend.key.width = unit(0.2, 'in'),
+        legend.title = element_text(colour="navy", size=15, face="bold"),
+        legend.text = element_text(size=12))
+
+```
+
+## Homebrew Visualization: Gender Distribution
+
+```{r, message=FALSE, fig.width=5,fig.height=8}
+# Homebrew - Gender distribution
+library(echarts4r)
+gender = data.frame(gender=c("Male", "Female"), value=round(c(EastGwillimbury16$male[11], EastGwillimbury16$female[11]),2),
+                    path = c('path://M18.2629891,11.7131596 L6.8091608,11.7131596 C1.6685112,11.7131596 0,13.032145 0,18.6237673 L0,34.9928467 C0,38.1719847 4.28388932,38.1719847 4.28388932,34.9928467 L4.65591984,20.0216948 L5.74941883,20.0216948 L5.74941883,61.000787 C5.74941883,65.2508314 11.5891201,65.1268798 11.5891201,61.000787 L11.9611506,37.2137775 L13.1110872,37.2137775 L13.4831177,61.000787 C13.4831177,65.1268798 19.3114787,65.2508314 19.3114787,61.000787 L19.3114787,20.0216948 L20.4162301,20.0216948 L20.7882606,34.9928467 C20.7882606,38.1719847 25.0721499,38.1719847 25.0721499,34.9928467 L25.0721499,18.6237673 C25.0721499,13.032145 23.4038145,11.7131596 18.2629891,11.7131596 M12.5361629,1.11022302e-13 C15.4784742,1.11022302e-13 17.8684539,2.38997966 17.8684539,5.33237894 C17.8684539,8.27469031 15.4784742,10.66467 12.5361629,10.66467 C9.59376358,10.66467 7.20378392,8.27469031 7.20378392,5.33237894 C7.20378392,2.38997966 9.59376358,1.11022302e-13 12.5361629,1.11022302e-13',
+                             'path://M28.9624207,31.5315864 L24.4142575,16.4793596 C23.5227152,13.8063773 20.8817445,11.7111088 17.0107398,11.7111088 L12.112691,11.7111088 C8.24168636,11.7111088 5.60080331,13.8064652 4.70917331,16.4793596 L0.149791395,31.5315864 C-0.786976655,34.7595013 2.9373074,35.9147532 3.9192135,32.890727 L8.72689855,19.1296485 L9.2799493,19.1296485 C9.2799493,19.1296485 2.95992025,43.7750224 2.70031069,44.6924335 C2.56498417,45.1567684 2.74553639,45.4852068 3.24205501,45.4852068 L8.704461,45.4852068 L8.704461,61.6700801 C8.704461,64.9659872 13.625035,64.9659872 13.625035,61.6700801 L13.625035,45.360657 L15.5097899,45.360657 L15.4984835,61.6700801 C15.4984835,64.9659872 20.4191451,64.9659872 20.4191451,61.6700801 L20.4191451,45.4852068 L25.8814635,45.4852068 C26.3667633,45.4852068 26.5586219,45.1567684 26.4345142,44.6924335 C26.1636859,43.7750224 19.8436568,19.1296485 19.8436568,19.1296485 L20.3966199,19.1296485 L25.2043926,32.890727 C26.1862111,35.9147532 29.9105828,34.7595013 28.9625083,31.5315864 L28.9624207,31.5315864 Z M14.5617154,0 C17.4960397,0 19.8773132,2.3898427 19.8773132,5.33453001 C19.8773132,8.27930527 17.4960397,10.66906 14.5617154,10.66906 C11.6274788,10.66906 9.24611767,8.27930527 9.24611767,5.33453001 C9.24611767,2.3898427 11.6274788,0 14.5617154,0 L14.5617154,0 Z'))
+
+gender %>% 
+  e_charts(gender) %>% 
+  e_y_axis(max=100, 
+           splitLine=list(show = FALSE),
+           axisTick=list(show=FALSE),
+           axisLine=list(show=FALSE),
+           axisLabel=list(show=FALSE)) %>%
+  e_x_axis(splitLine=list(show = FALSE), 
+           axisTick=list(show=FALSE),
+           axisLine=list(show=FALSE),
+           axisLabel= list(show=FALSE)) %>%
+  e_color(color = c('navy','#dae1e3')) %>%
+  e_pictorial(value, symbol = path, z=20, name= 'Gender', 
+              symbolBoundingData= 100, symbolClip= TRUE) %>% 
+  e_pictorial(value, symbol = path, name= 'Background', 
+              symbolBoundingData= 100) %>% 
+  e_labels(position = "bottom", offset= c(0, 10), 
+           textStyle =list(fontSize= 30, fontFamily= 'Arial', 
+                           fontWeight ='bold', 
+                           color= 'navy'),
+           formatter="{@[1]}% {@[0]}") %>%
+  e_legend(show = FALSE) 
+```
+
+## Continuous Element Visualization: Total Income
+
+```{r,fig.width=14,fig.height=8}
+# Continuous element is median total income in 2020
+# On the graph, East Gwillimbury is highlighted red to differentiate from other municipalities
+# Names are not printed on every municipality since it is not the main purpose of this graph: We are interested in visualizing the median total income in East Gwillimbury compared to other municipalities nearby but their names aren't very important.
+
+# Shorten names to only show the name of a municipality instead of name + type
+EastGwillimbury[11,6] <- "East\nGwillimbury"
+EastGwillimbury[14,6] <- "EastGwillimbury"
+EastGwillimbury[17,6] <- "Caledon"
+EastGwillimbury[10,6] <- "King"
+EastGwillimbury[4,6] <- "Vaughan"
+EastGwillimbury[5,6] <- "Markham"
+EastGwillimbury[12,6] <- "Georgina"
+EastGwillimbury[3,6] <- "Uxbridge"
+EastGwillimbury[16,6] <- "Brampton"
+EastGwillimbury[15,6] <- "Mississauga"
+
+ggplot(EastGwillimbury)+ geom_sf(aes(fill=v_CA21_560))+ 
+  scale_fill_viridis_c("Median Total Income, 2020", labels = scales::dollar,breaks=c(35000,37500,40000,42500,45000,47500,50000),
+                        option="magma") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  coord_sf(datum=NA) +
+  labs(x=NULL, y=NULL) +
+  theme(legend.title = element_text(colour="navy", size=30, face="bold",
+                                    vjust = 1, hjust=0.5)) +
+  geom_sf_label(data = EastGwillimbury[c(3,4,5,10,12,14,15,16,17),], aes(label = name), colour = "black", 
+                size=3,fill="white") +
+  geom_sf_label(data = EastGwillimbury[11,], aes(label = name), colour = "black", 
+                size=2.8,fill="firebrick1") +
+  theme(legend.text = element_text(size=11)) +
+  theme(plot.margin = unit(c(1,1,1,0.5),'cm')) +
+  theme(legend.position=c(0.5,0.97), legend.direction="horizontal", legend.key.width = unit(2, "cm")) 
+```
+
+## Extra Visialization: Waffle Chart 2
+
+```{r,fig.width=7,fig.height=1}
+fa_home <- fontawesome('fa-home')
+d <- data.frame(y = c(rep(1,5)), x = c(rep(1:5)),
+                group=c(rep('A',4),rep('B',1)),
+                label=sample(fa_home, 5, replace=T))
+par(mar=c(5.1, 4.1, 4.1, 2.1))
+ggplot(d, aes(x, y, colour = group)) + 
+  geom_text(aes(label=label, color=group), family='fontawesome-webfont', size=20) +
+  scale_colour_manual(values=c("navy","red")) +
+  theme_waffle() +
+  labs(x=NULL, y=NULL) +
+  theme(legend.position = "none")
+```
+
